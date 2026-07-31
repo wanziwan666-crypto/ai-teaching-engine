@@ -62,7 +62,7 @@ State file `~/.ai-teaching-state.json`:
 ```json
 {
   "phase": "...",
-  "problem": {"text":"...", "topic":"...", "answer":"...", "grade":"..."},
+  "problem": {"text":"...", "topic":"...", "final_answer":"纯得数", "steps_solution":"分步过程", "grade":"..."},
   "skeleton": {"type":"...", "steps":[...]},
   "turns": [],
   "explain": {"step":1, "history":[]},
@@ -240,7 +240,7 @@ function submitAnswers(){
 
 1. "你想学哪道题？" Image → `analyze-material`. Grade 默认小学高年级.
 2. Classify → load/generate skeleton. New → confirm.
-3. Extract answer. Write state. Show plan → EXPLAIN.
+3. 解出答案，**拆成两份存**：`final_answer`（纯得数，供守卫判泄底）与 `steps_solution`（分步过程，供诊断对照）。Write state. Show plan → EXPLAIN.
 
 第一轮 HTML 卡片告知学生："打开 ~/Downloads/ai-teaching-card.html 即可实时查看教学面板。"
 
@@ -331,13 +331,18 @@ SUMMARIZE、REVIEW、纯 state 写入不需要过。
 ### 怎么调
 
 ```bash
-echo '{"text":"<即将发给学生的文本>","phase":"explain","standard_answer":"<state.problem.answer>","prev_student":"<上一轮学生发言>","round":<该阶段第几轮>}' | node guard.mjs
+echo '{"text":"<即将发给学生的文本>","phase":"explain","final_answer":"<最终得数>","problem_text":"<题干原文>","prev_student":"<上一轮学生发言>","round":<该阶段第几轮>}' | node guard.mjs
 ```
 
-- `phase`：`explain` | `practice` | `diagnose` | `intervene`
-- `standard_answer`：**必传**，从 `state.problem.answer` 取——守卫靠它判断你有没有抢先报出得数
-- `prev_student`：上一轮学生发言。若学生自己已说出某数值，守卫不再把它算作泄底
-- 返回 `{"ok":true,"violations":[]}` 或 `{"ok":false,"violations":[{"rule","evidence"}]}`
+- `phase`：`explain` | `practice` | `diagnose` | `intervene`（`summarize` / `review` 传进去会直接放行、返回 `audited:false`，无需特意避开）
+- `final_answer`：**强烈建议传**，只放**最终得数**（如 `"兔3只鸡7只"` 或 `"5分钟"`）。守卫靠它判断你有没有抢先报出答案。
+  - EXPLAIN 阶段取 `state.problem.final_answer`；PRACTICE 之后各阶段（诊断/干预）取本次练习题的 `practice.final_answer`。
+  - **务必是纯得数**——不要把 `steps_solution` 里的过程/中间值塞进来，否则守卫会把中间数字误当得数而误报。
+- `problem_text`：题干原文（EXPLAIN 用 `state.problem.text`，PRACTICE 后用 `practice.story`）。里面的数字是**给定条件**，老师本就能复述——守卫会把这些数字从泄底名单里减掉，避免"复述已知条件"被误判成泄底。
+- `standard_answer`：**已弃用的向后兼容**字段。没传 `final_answer` 时才退回用它抽数字，但它若是整段解题过程，**中间数字（如 `6÷2=3` 里的 `2`）无法与得数区分，可能误报**。新代码一律传 `final_answer`，不要再依赖它。
+- `prev_student`：上一轮学生发言。若学生自己已说出某数值，守卫不再把它算作泄底。
+- 「第N步」这类步号数字会在扫描前自动剥离，不会被当成得数。
+- 返回 `{"ok":true,"violations":[],"audited":true}` 或 `{"ok":false,"violations":[{"rule","evidence"}],"audited":true}`；`audited:false` 表示该阶段本就不校验（已放行）。
 
 ### 命中后怎么办（重生成，不是放行）
 
@@ -356,6 +361,13 @@ echo '{"text":"<即将发给学生的文本>","phase":"explain","standard_answer
 改动 `guard.mjs` 或 `prompts.js` 后跑 `node guard.mjs --selftest`，确认全部通过再交给孩子用。
 
 ## Key Rules
+
+**已知限制**：
+- 目前仅支持**纯文字题**（鸡兔同笼、相遇问题、工程问题、按比例分配等）
+- 学生上传截图时，`analyze-material` 提取文字后当纯文字题处理
+- **不支持**需要看图才能理解的题（几何图形、图表数据、空间推理）
+- SVG 配图画的是教学示意（如圆点代表头数），不还原原题图片
+- 未来计划：嵌入原图 + 几何题型骨架
 
 1. State in `~/.ai-teaching-state.json` — **阶段切换时统一更新**（不是每轮对话都写）：
    - SETUP 完成 → 存 problem/skeleton/phase
