@@ -62,11 +62,14 @@ cp -r ai-teaching-engine ~/.agents/skills/
 ai-teaching-engine/
 ├── SKILL.md          # 行为规则（状态机 + 各阶段约束）
 ├── prompts.js        # 各阶段行为模板
+├── guard.mjs         # 运行时守卫：回复前校验教学红线
+├── setup.mjs         # 家长首次配置：环境检查 / 清理旧状态 / 安全网自测
 └── problem-types/    # 题型骨架库
     ├── _schema.md    # 如何编写新题型
     ├── 鸡兔同笼.md
     ├── 相遇问题.md
-    └── 工程问题.md
+    ├── 工程问题.md
+    └── 盈亏问题.md
 ```
 
 零 npm 依赖，零 pip 依赖，零外部服务。
