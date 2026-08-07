@@ -62,7 +62,10 @@ cp -r ai-teaching-engine ~/.agents/skills/
 ai-teaching-engine/
 ├── SKILL.md          # 行为规则（状态机 + 各阶段约束）
 ├── prompts.js        # 各阶段行为模板
+├── turn.mjs          # 每轮入口：守卫校验 → 落盘 → 推进计数器 → 重渲染面板
+├── render.mjs        # 教学面板渲染：state.turns → 完整 HTML
 ├── guard.mjs         # 运行时守卫：回复前校验教学红线
+├── log.mjs           # 学情日志：REVIEW 后把 state 投影成一行 JSONL
 ├── setup.mjs         # 家长首次配置：环境检查 / 清理旧状态 / 安全网自测
 └── problem-types/    # 题型骨架库
     ├── _schema.md    # 如何编写新题型
@@ -73,6 +76,10 @@ ai-teaching-engine/
 ```
 
 零 npm 依赖，零 pip 依赖，零外部服务。
+
+AI 不手写 HTML：它每轮只产出一条结构化 turn，面板由 `render.mjs` 从 `state.turns`
+确定性渲染。所以教学历史结构上不可能被压缩或丢失，泄底的文本也进不了页面
+（守卫不过就整轮不落盘）。
 
 ## 工作原理
 
@@ -85,11 +92,11 @@ ai-teaching-engine/
 
 ### 教学面板
 
-每轮写 HTML 到 `~/Downloads/ai-teaching-card.html`，包含：
+`~/Downloads/ai-teaching-card.html`，由 `render.mjs` 从 `state.turns` 全量重渲染，包含：
 - SVG 可视化配图（圆点/箭头/标注）
 - 进度条
-- 完整对话历史（不压缩）
-- 练习表单（提交后 JSON 复制到剪贴板）
+- 完整对话历史（结构上不可压缩——AI 不重写页面，只追加 turn）
+- 练习表单（提交后 JSON 复制到剪贴板；学生正在打字时自动跳过刷新，不打断）
 
 学生浏览器打开面板，在 agent 对话中互动。
 
