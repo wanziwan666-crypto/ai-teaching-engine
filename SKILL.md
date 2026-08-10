@@ -372,7 +372,8 @@ node guard.mjs --selftest && node render.mjs --selftest && node turn.mjs --selft
 ## Key Rules
 
 **已知限制**：
-- 目前仅支持**纯文字题**（鸡兔同笼、相遇问题、工程问题、按比例分配等）
+- 目前仅支持**纯文字题**。题型库覆盖 13 个小学高年级常见应用题（`problem-types/`），
+  库未命中时 SETUP 会现场生成骨架
 - 学生上传截图时，`analyze-material` 提取文字后当纯文字题处理
 - **不支持**需要看图才能理解的题（几何图形、图表数据、空间推理）
 - SVG 配图画的是教学示意（如圆点代表头数），不还原原题图片
