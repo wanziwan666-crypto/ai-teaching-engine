@@ -8,7 +8,7 @@
 // 历史不可能被压缩，因为没人再"重写"它。
 //
 // 用法：
-//   node render.mjs                          # ~/.ai-teaching-state.json → ~/Downloads/ai-teaching-card.html
+//   node render.mjs                          # ~/.math-tutor-state.json → ~/Downloads/math-tutor-card.html
 //   node render.mjs --stdout                 # 打到标准输出，不落盘
 //   node render.mjs --state s.json --out c.html
 //   node render.mjs --selftest
@@ -31,8 +31,8 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
-export const STATE_PATH = path.join(HOME, ".ai-teaching-state.json");
-export const CARD_PATH = path.join(HOME, "Downloads", "ai-teaching-card.html");
+export const STATE_PATH = path.join(HOME, ".math-tutor-state.json");
+export const CARD_PATH = path.join(HOME, "Downloads", "math-tutor-card.html");
 
 // body 一律转义后靠 CSS 的 white-space:pre-wrap 保留换行。
 // 教学文本是 LLM 生成的纯文本，不该当 HTML 解析——否则一个 "<" 就能弄坏整页。

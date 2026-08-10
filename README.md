@@ -92,7 +92,7 @@ AI 不手写 HTML：它每轮只产出一条结构化 turn，面板由 `render.m
 
 ### 教学面板
 
-`~/Downloads/ai-teaching-card.html`，由 `render.mjs` 从 `state.turns` 全量重渲染，包含：
+`~/Downloads/math-tutor-card.html`，由 `render.mjs` 从 `state.turns` 全量重渲染，包含：
 - SVG 可视化配图（圆点/箭头/标注）
 - 进度条
 - 完整对话历史（结构上不可压缩——AI 不重写页面，只追加 turn）

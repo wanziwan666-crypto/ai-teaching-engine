@@ -38,7 +38,7 @@ import { project, appendLog as appendLogLine } from "./log.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const HOME = os.homedir();
-export const LOG_PATH = path.join(HOME, ".ai-teaching-log.jsonl");
+export const LOG_PATH = path.join(HOME, ".math-tutor-log.jsonl");
 
 // 需要过守卫的阶段。summarize/review 及学生/note turn 不审。
 const AUDITED_PHASES = new Set(["explain", "practice", "diagnose", "intervene"]);

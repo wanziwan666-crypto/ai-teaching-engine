@@ -1,7 +1,7 @@
 // Math Tutor · 学情日志写入器
 //
-// 用途：REVIEW 完成后调一次，把 ~/.ai-teaching-state.json 机械投影成一行 JSONL，
-//      追加到 ~/.ai-teaching-log.jsonl。math-analytics skill 读这个文件做数学学情分析。
+// 用途：REVIEW 完成后调一次，把 ~/.math-tutor-state.json 机械投影成一行 JSONL，
+//      追加到 ~/.math-tutor-log.jsonl。math-analytics skill 读这个文件做数学学情分析。
 //
 // 为什么要有这个脚本而不是"让 agent 记得写"：
 //   日志是 math-analytics 的唯一输入。散文里写一句"REVIEW 后追加一条"靠的是自觉，
@@ -9,11 +9,11 @@
 //   这里把"读哪些字段、怎么算"全部固化成代码，agent 只需在 REVIEW 末尾跑一条命令。
 //
 // 用法：
-//   node log.mjs                    从 ~/.ai-teaching-state.json 投影并追加
+//   node log.mjs                    从 ~/.math-tutor-state.json 投影并追加
 //   node log.mjs --state <path>     指定 state 文件（测试用）
 //   node log.mjs --dry-run          只打印将写入的那一行，不落盘
 //   node log.mjs --selftest         跑内置样例
-//   → stdout: {"ok":true,"written":"~/.ai-teaching-log.jsonl","records":7}
+//   → stdout: {"ok":true,"written":"~/.math-tutor-log.jsonl","records":7}
 //
 // 契约：本脚本只做投影，不做教学判断。state 里没有的信息，这里不发明。
 
@@ -22,8 +22,8 @@ import os from "node:os";
 import path from "node:path";
 
 const HOME = os.homedir();
-const DEFAULT_STATE = path.join(HOME, ".ai-teaching-state.json");
-const DEFAULT_LOG = path.join(HOME, ".ai-teaching-log.jsonl");
+const DEFAULT_STATE = path.join(HOME, ".math-tutor-state.json");
+const DEFAULT_LOG = path.join(HOME, ".math-tutor-log.jsonl");
 
 // 引擎的五类卡点（prompts.js STUCK_TYPES）。写入时校验，不认识的值原样保留但标记出来，
 // 避免分析端拿到一份跟引擎对不上的词表还不知情。
@@ -247,7 +247,7 @@ function selftest() {
   eq("空state·不抛异常且 rounds 为空", empty.rounds_count, 0);
 
   // 9) 追加写入真能落盘且可被逐行解析
-  const tmp = path.join(os.tmpdir(), `ai-teaching-log-selftest-${process.pid}.jsonl`);
+  const tmp = path.join(os.tmpdir(), `math-tutor-log-selftest-${process.pid}.jsonl`);
   try {
     fs.rmSync(tmp, { force: true });
     appendLog(clean, tmp);

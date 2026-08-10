@@ -9,9 +9,9 @@ description: Use when user wants an AI tutor to teach them a math/science proble
 
 Two-mode LLM:
 - **Default**: you ARE the teacher
-- **Override**: `~/.ai-teaching-config.json` → call configured API
+- **Override**: `~/.ai-tutoring-config.json` → call configured API
 
-State in `~/.ai-teaching-state.json`.
+State in `~/.math-tutor-state.json`.
 
 ## 家长首次配置
 
@@ -24,10 +24,10 @@ node setup.mjs
 
 它会检查环境、跑安全网自测、清掉上次遗留的学习状态（备份为 `.bak`），并打印孩子怎么开始。
 **默认模式（Mode A）无需任何 API Key** —— 装了本技能的 AI 助手自己就是老师。
-想用自己的 API（Mode B）：在 `~/.ai-teaching-config.json` 配置后重跑 `setup.mjs`。
+想用自己的 API（Mode B）：在 `~/.ai-tutoring-config.json` 配置后重跑 `setup.mjs`。
 
 孩子开始：对 AI 助手说「教我这道题：<题目>」或发题目照片。
-教学面板实时写到 `~/Downloads/ai-teaching-card.html`，家长用浏览器打开即可看到孩子学到哪、卡在哪。
+教学面板实时写到 `~/Downloads/math-tutor-card.html`，家长用浏览器打开即可看到孩子学到哪、卡在哪。
 
 ## Architecture
 
@@ -45,7 +45,7 @@ host agent
 
 **你不写 HTML。** 面板由 `render.mjs` 从 `state.turns` 确定性渲染——
 样式、进度条、表单、刷新逻辑都在那里，你只负责产出一条 turn 的**内容**。
-所有阶段共用一个文件：`~/Downloads/ai-teaching-card.html`。
+所有阶段共用一个文件：`~/Downloads/math-tutor-card.html`。
 
 ## State Machine
 
@@ -58,7 +58,7 @@ SETUP → EXPLAIN → SUMMARIZE → PRACTICE → DIAGNOSE ──correct──→
                                                                escape←┘
 ```
 
-State file `~/.ai-teaching-state.json`:
+State file `~/.math-tutor-state.json`:
 ```json
 {
   "phase": "...",
@@ -76,7 +76,7 @@ State file `~/.ai-teaching-state.json`:
 }
 ```
 
-`student` — 多个孩子共用一台电脑时用来分流学情日志。SETUP 时若 `~/.ai-teaching-config.json` 里配了 `student`
+`student` — 多个孩子共用一台电脑时用来分流学情日志。SETUP 时若 `~/.ai-tutoring-config.json` 里配了 `student`
 就取它，否则用 `"default"`，**不要主动问孩子名字**。
 
 `problem.text` 存**题干原文全文**（不是摘要）。学情分析要跨题型找共同特征（隐性条件、运算选择、阅读量），
@@ -103,7 +103,7 @@ State file `~/.ai-teaching-state.json`:
 
 ## 教学面板（不用手写 HTML）
 
-`~/Downloads/ai-teaching-card.html` 显示全部教学历史，2s 自动刷新（学生正在输入时自动跳过刷新，不会打断打字）。
+`~/Downloads/math-tutor-card.html` 显示全部教学历史，2s 自动刷新（学生正在输入时自动跳过刷新，不会打断打字）。
 
 **面板由 `render.mjs` 从 `state.turns` 确定性渲染，你永远不写 HTML/CSS/表单。**
 你只产出一条结构化 turn，交给 `turn.mjs`：
@@ -197,9 +197,9 @@ node turn.mjs --event correct             # 答对 → review
 3. 解出答案，**拆成两份存**：`final_answer`（纯得数，供守卫判泄底）与 `steps_solution`（分步过程，供诊断对照）。Write state. Show plan → EXPLAIN.
 
 `problem.text` 存**题干原文全文**（图片则存提取出的文字全文），不要存成"头10脚26"这样的摘要——
-学情分析靠原文判题目特征。同时从 `~/.ai-teaching-config.json` 读 `student` 存进 state（没配就 `"default"`）。
+学情分析靠原文判题目特征。同时从 `~/.ai-tutoring-config.json` 读 `student` 存进 state（没配就 `"default"`）。
 
-第一轮告知学生："打开 ~/Downloads/ai-teaching-card.html 即可实时查看教学面板。"
+第一轮告知学生："打开 ~/Downloads/math-tutor-card.html 即可实时查看教学面板。"
 
 ### PHASE 1: EXPLAIN
 
@@ -264,13 +264,13 @@ correct→REVIEW（`--event correct`）| 低置信→核实 | 其他→INTERVENE
 生成 `{summary, next_time, encourage}` → 提交 `{"phase":"review",…}` turn → **写学情日志** → done.
 
 **学情日志（不得跳过）**：复盘卡片写完后跑一条命令，把 state 投影成一行 JSONL 追加到
-`~/.ai-teaching-log.jsonl`：
+`~/.math-tutor-log.jsonl`：
 
 ```bash
 node turn.mjs --log        # 或等价的 node log.mjs
 ```
 
-成功输出 `{"ok":true,"written":"~/.ai-teaching-log.jsonl","records":N}`。
+成功输出 `{"ok":true,"written":"~/.math-tutor-log.jsonl","records":N}`。
 
 - **不要手写这个 JSON**。字段怎么取、主卡点怎么定、`new_problem_independent_correct` 怎么算，
   全固化在 `log.mjs` 里。手写会漂移，而这个文件是 `math-analytics` skill 的唯一输入。
@@ -381,7 +381,7 @@ node guard.mjs --selftest && node render.mjs --selftest && node turn.mjs --selft
 1. **每轮只做两件事**：生成内容 → `node turn.mjs --turn-file <turn.json>`。
    守卫校验、state 落盘、计数器推进、面板渲染都在那一条命令里，**不做完不许回复学生**。
    命中红线（`ok=false`）→ 重写内容原样重试，state 和面板都没被动过。
-2. **state 由脚本写，不要手动编辑** `~/.ai-teaching-state.json`：
+2. **state 由脚本写，不要手动编辑** `~/.math-tutor-state.json`：
    - SETUP 完成 → 你写一次初始 state（problem `text` 存题干**全文**/skeleton/student/phase）
    - 之后每轮交给 `turn.mjs`：turns、explain.step、practice、diagnosis、rounds、
      inner_loop、intervene.count、escape_reason 全部自动维护

@@ -12,9 +12,9 @@ import { execFileSync } from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const HOME = os.homedir();
-const STATE_PATH = path.join(HOME, ".ai-teaching-state.json");
-const CONFIG_PATH = path.join(HOME, ".ai-teaching-config.json");
-const LOG_PATH = path.join(HOME, ".ai-teaching-log.jsonl");
+const STATE_PATH = path.join(HOME, ".math-tutor-state.json");
+const CONFIG_PATH = path.join(HOME, ".ai-tutoring-config.json");
+const LOG_PATH = path.join(HOME, ".math-tutor-log.jsonl");
 
 const GREEN = "\x1b[32m", RED = "\x1b[31m", YEL = "\x1b[33m", DIM = "\x1b[2m", B = "\x1b[1m", R = "\x1b[0m";
 const ok = (m) => console.log(`  ${GREEN}✓${R} ${m}`);
@@ -67,7 +67,7 @@ for (const { file, label, fatal } of others) {
 }
 
 // 4) 清理上次遗留的学习状态，保证孩子从头开始
-//    注意：只清 state（单题进度），绝不动 ~/.ai-teaching-log.jsonl —— 那是跨题累积的学情数据。
+//    注意：只清 state（单题进度），绝不动 ~/.math-tutor-log.jsonl —— 那是跨题累积的学情数据。
 if (fs.existsSync(STATE_PATH)) {
   try {
     const bak = STATE_PATH + ".bak";
@@ -120,15 +120,15 @@ if (problems === 0) {
   console.log(`  ${B}孩子怎么开始：${R}`);
   console.log(`  1. 打开你平时用的 AI 助手（已装好本技能）`);
   console.log(`  2. 让孩子对它说：${B}“教我这道题：<题目>”${R}  或拍张题目照片`);
-  console.log(`  3. 教学面板会自动写到 ${B}~/Downloads/ai-teaching-card.html${R}`);
+  console.log(`  3. 教学面板会自动写到 ${B}~/Downloads/math-tutor-card.html${R}`);
   console.log(`     ${DIM}用浏览器打开这个文件，就能实时看到孩子学到哪、卡在哪、诊断结果${R}\n`);
-  console.log(`  ${B}看数学学情：${R}每做完一道题会自动记一条到 ${DIM}~/.ai-teaching-log.jsonl${R}。`);
+  console.log(`  ${B}看数学学情：${R}每做完一道题会自动记一条到 ${DIM}~/.math-tutor-log.jsonl${R}。`);
   console.log(`  攒够 3 条后对 AI 说 ${B}“看看数学学情”${R}，会在 ~/Downloads/ 生成两份报告：`);
   console.log(`    ${DIM}math-report-<日期>.html${R}          孩子也能看的版本`);
   console.log(`    ${DIM}math-report-<日期>-家长版.html${R}    含预警和补课建议`);
   console.log(`  ${DIM}文件名只是约定，不是权限——孩子照样能打开家长版。${R}`);
   console.log(`  ${DIM}作文学情是另一个 skill（还没建），两科分开分析、分开出报告。${R}\n`);
-  console.log(`  ${DIM}想换成自己的 API：在 ~/.ai-teaching-config.json 里配置后重跑本脚本。${R}`);
+  console.log(`  ${DIM}想换成自己的 API：在 ~/.ai-tutoring-config.json 里配置后重跑本脚本。${R}`);
   console.log(`  ${DIM}多个孩子共用：在同一个配置文件里加 {"student":"孩子名字"}，学情会分开统计。${R}`);
   console.log(`  ${DIM}只有你自己用（孩子不碰这台电脑）：加 {"report_audience":"parent"}，${R}`);
   console.log(`  ${DIM}学情分析就不用每次都保守地按孩子口述了。${R}\n`);
