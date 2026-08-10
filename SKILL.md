@@ -1,9 +1,9 @@
 ---
-name: ai-teaching-engine
+name: math-tutor
 description: Use when user wants an AI tutor to teach them a math/science problem step-by-step through a 讲→练→诊断→干预→复盘 five-step loop, needs interactive problem diagnosis with stuck-type classification, or asks for "Socratic tutoring" that stops halfway to let them think. Triggers on "教我这道题", "AI辅导", "讲练诊断", "五步教学", "分步讲解", "diagnose my answer", "教我这题".
 ---
 
-# AI Teaching Engine — State Machine Skill
+# Math Tutor — State Machine Skill
 
 ## Overview
 

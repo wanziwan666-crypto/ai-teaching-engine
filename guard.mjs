@@ -1,4 +1,4 @@
-// AI Teaching Engine · 运行时守卫（安全网）
+// Math Tutor · 运行时守卫（安全网）
 //
 // 用途：每一轮把「即将发给孩子的文本」在回复前过一遍这里，命中红线就重生成。
 // 规则移植自 demo 的 test/selftest.mjs 审计函数，但去掉了相遇问题的硬编码，
@@ -58,8 +58,20 @@ function leakNumbers({ final_answer, standard_answer, problem_text }) {
 // 只保护 **current_step 及其之后** 的步骤：已经讲完的步骤，学生本来就已经想过、
 // 甚至自己算出来了，老师复述是正当引导。这条范围限制是误报防线的主要来源。
 // current_step 缺省（0）时保守起见保护全部中间量。
+// 「份数」这类**结构语言**里的数字不是要保护的量值。
+// "把儿子看成 1 份、父亲 3 份，差 2 份" —— 这些 1/2/3 描述的是关系结构，
+// 而讲份数绕不开这种说法，把它们当中间量保护会让年龄/和差倍/按比例分配等
+// 一大批题型的讲解必然误报（实测年龄问题整局不可教）。
+//
+// 只剥「N份」，**不**按位数一刀切：归一问题的单价就是个位数（"一支3元"），
+// 按比例分配的总份数也是（"一共5份"），按位数排除会把这些真中间量放掉。
+const PARTS_NUMBER = /\d+\s*份/g;
+function stripPartsTokens(s) {
+  return String(s || "").replace(PARTS_NUMBER, "");
+}
+
 function pendingNumbers({ steps_solution, problem_text, current_step = 0 }) {
-  const src = String(steps_solution || "");
+  const src = stripPartsTokens(steps_solution);
   if (!src.trim()) return [];
   const givens = new Set(numbersIn(problem_text));
   // steps_solution 形如 "1同向;2追及距离=45×4=180米;3速度差;4=60-40=20;5=200÷20=10分钟"
@@ -122,6 +134,44 @@ function checkAnswerLeak(text, ctx, flag) {
       break;
     }
   }
+  checkNonNumericAnswerLeak(scanText, ctx, flag);
+}
+
+// 得数不含数字时的泄底保护（周期问题的"黄色"、"星期三"，行程题的"甲先到"，判断题的"能"）。
+//
+// 为什么必须单独处理：leakNumbers 抽不出数字 → 名单为空 → 整个泄底检测静默失效。
+// 实测周期问题的干预里"余数为0就取最后一个，所以是黄色"被放行。
+//
+// 为什么不能"出现即拦"：非数值答案几乎总是题干里的词（"黄色"来自"红、白、黄"），
+// 老师提问时绕不开它（"是什么颜色？红白黄里的哪一个？"）。出现即拦会让这类题不可教。
+// 所以判据是**断言**：把它当结论说出来才算泄底，当选项/提问说出来不算。
+// 断言词只取词根（"所以"而非"所以是"）——中间常夹着主语（"所以第24面**是**黄色"），
+// 写成"所以是"会漏掉这种最常见的说法。用词根 + 后面必须跟"是/为"来收窄。
+const ASSERT_PATTERNS = [
+  "所以", "因此", "答案", "结果", "正确答案", "没错", "对了",
+  "肯定", "当然", "其实", "就是",
+];
+function checkNonNumericAnswerLeak(scanText, ctx, flag) {
+  const ans = String(ctx.final_answer || "").trim();
+  if (!ans) return;
+  if (numbersIn(ans).length) return;          // 含数字的走上面的数值检测
+  if (ans.length < 1 || ans.length > 12) return;
+  if (!scanText.includes(ans)) return;
+  if (String(ctx.prev_student || "").includes(ans)) return;   // 学生自己说出的不算
+
+  const esc = ans.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // 提问式不算泄底：答案后面紧跟疑问词/选择连词，说明是在问而不是在下结论
+  //   "是黄色吗？" / "是黄色还是白色" / "红白黄里的哪一个"
+  if (new RegExp(`${esc}\\s*(吗|呢|还是|或者|或是|哪)`).test(scanText)) return;
+
+  for (const p of ASSERT_PATTERNS) {
+    // 断言词 →（可夹主语，如"第24面"）→ "是/为" → 答案
+    const re = new RegExp(`${p}[^。！？\\n]{0,12}?(是|为)\\s*${esc}`);
+    if (re.test(scanText)) {
+      flag("抢在学生前面报出了最终答案", `断言"${ans}"：${matchLine(scanText, re)}`);
+      return;
+    }
+  }
 }
 
 // 含具体数字算式（如 6÷2、8*2），等于把运算方向/结果给了学生。
@@ -154,7 +204,9 @@ function checkEquation(text, flag) {
 // 老师抢在学生前面说出了**还没轮到的中间量**（如追及距离、单价、总份数）。
 // 与 checkAnswerLeak 同源但保护的是过程值；学生自己已说出的不算泄露。
 function checkIntermediateLeak(text, ctx, flag) {
-  const scanText = stripStepTokens(text);
+  // 待查文本同样剥掉「N份」——否则老师说"妈妈3份、女儿1份"时，
+  // 那些份数会去命中中间量名单里同值的数字。
+  const scanText = stripPartsTokens(stripStepTokens(text));
   for (const num of pendingNumbers(ctx)) {
     if (!num) continue;
     // 得数已由 checkAnswerLeak 负责，这里不重复报同一个数字
@@ -269,7 +321,12 @@ function selftest() {
     { name: "讲·泄露追及距离(中间量)应命中", input: { text: "第2步：哥哥领先的距离是180米。\n引导：那弟弟每分钟追近多少？", phase: "explain", final_answer: "9分钟", problem_text: "哥哥45米每分先走4分钟，弟弟65米每分", steps_solution: "1同向;2追及距离=45×4=180米;3速度差;4=65-45=20;5=180÷20=9分钟", current_step: 2 }, expectOk: false },
     { name: "讲·泄露'减掉差之后的和'应命中", input: { text: "第4步：把和减掉差之后是36。\n引导：这36代表什么？", phase: "explain", final_answer: "大数34小数18", problem_text: "两数和52，差16", steps_solution: "1和与差;2小数作基准;3大数=小数+16;4(52-16)=36,36÷2=18", current_step: 4 }, expectOk: false },
     { name: "讲·泄露单价(归一中间量)应命中", input: { text: "第3步：一支笔其实是3元。\n引导：那8支呢？", phase: "explain", final_answer: "24元", problem_text: "5支笔15元，8支要多少元", steps_solution: "1单价不变;2先求一份;3=15÷5=3元;4=3×8=24元", current_step: 3 }, expectOk: false },
-    { name: "讲·泄露总份数应命中", input: { text: "第2步：一共是5份。\n引导：那一份多少钱？", phase: "explain", final_answer: "甲20元乙30元", problem_text: "50元按2:3分给甲乙", steps_solution: "1总量50比2:3;2总份数=2+3=5;3=50÷5=10元;4甲=10×2=20,乙=10×3=30", current_step: 2 }, expectOk: false },
+    // 「N份」是讲份数绕不开的**结构语言**，不作为中间量保护 —— 否则年龄/和差倍/
+    // 按比例分配等六个题型的讲解必然误报（实测年龄问题整局不可教）。
+    // 份数背后的**量值**（"每份10元"）仍然全额保护，见下一条。
+    { name: "讲·说'一共5份'是结构语言应放行", input: { text: "第2步：甲拿2份、乙拿3份。\n引导：那这50元一共被分成了多少份？", phase: "explain", final_answer: "甲20元乙30元", problem_text: "50元按2:3分给甲乙", steps_solution: "1总量50比2:3;2总份数=2+3=5;3=50÷5=10元", current_step: 2 }, expectOk: true },
+    { name: "讲·泄露每份的量值应命中", input: { text: "第3步：每份其实是10元。\n引导：那甲有多少？", phase: "explain", final_answer: "甲20元乙30元", problem_text: "50元按2:3分给甲乙", steps_solution: "2总份数=5;3=50÷5=10元;4甲=10×2=20", current_step: 3 }, expectOk: false },
+    { name: "讲·讲份数关系不误报(年龄问题回归)", input: { text: "第3步：把那年儿子的年龄看成1份，父亲是几份？\n引导：那么他们的年龄差相当于几份？", phase: "explain", final_answer: "4年后", problem_text: "父亲38岁儿子10岁，几年后父亲是儿子的3倍", steps_solution: "2年龄差=28岁;3父3份子1份差2份;4一份=14岁", current_step: 3 }, expectOk: true },
     { name: "干预·泄露中间量应命中", input: { text: "第2步应该先算领先的距离，也就是180米。\n你再想想接下来怎么办？", phase: "intervene", final_answer: "9分钟", problem_text: "哥哥45米每分先走4分钟", steps_solution: "2追及距离=45×4=180米;4=20;5=9分钟", current_step: 2 }, expectOk: false },
     // 误报防线 1：已经讲过的步骤不再保护 —— 学生自己算出过的值，老师复述是正当引导。
     // 这条是本设计误报概率低的主要来源（当前步之后才保护）。
@@ -289,6 +346,17 @@ function selftest() {
     { name: "讲·工程问题的效率分数应放行", input: { text: "第2步：把这项工程看作一个整体。\n引导：甲一天能完成其中的几分之几？", phase: "explain", final_answer: "4天", problem_text: "甲6天完成，乙12天完成" }, expectOk: true },
     { name: "讲·分数参与乘法应命中", input: { text: "第4步：所以要算 60×3/4。\n引导：试试？", phase: "explain", final_answer: "45棵", problem_text: "桃树60棵，梨树是桃树的3/4" }, expectOk: false },
     { name: "讲·分数参与减法应命中", input: { text: "第3步：剩下的就是 1-2/5。\n引导：那是多少？", phase: "explain", final_answer: "120页", problem_text: "看了全书的2/5" }, expectOk: false },
+
+    // ---- 非数值答案的泄底保护（周期问题的"黄色"、"星期三"，行程题的"甲先到"）----
+    // final_answer 不含数字时 leakNumbers 名单为空，整个泄底检测静默失效。
+    // 实测周期问题干预里"余数为0就取最后一个，所以是黄色"被放行。
+    // 判据是**断言**而非"出现即拦"：非数值答案几乎总是题干里的词，
+    // 老师提问时绕不开它（"是红色、白色还是黄色？"），出现即拦会让这类题不可教。
+    { name: "干预·断言非数值答案应命中", input: { text: "余数为0就取最后一个，所以是黄色。你记住这个规则？", phase: "intervene", final_answer: "黄色", problem_text: "红白黄重复排列，第24面是什么颜色", prev_student: "第一个" }, expectOk: false },
+    { name: "干预·断言夹主语也应命中", input: { text: "所以第24面是黄色。你验算一下？", phase: "intervene", final_answer: "黄色", problem_text: "红白黄重复排列，第24面是什么颜色", prev_student: "第一个" }, expectOk: false },
+    { name: "讲·复述题干里的答案词不误报", input: { text: "第1步：这串旗子是红、白、黄重复排列的。\n引导：哪几个在重复？", phase: "explain", final_answer: "黄色", problem_text: "红白黄重复排列，第24面是什么颜色", prev_student: "还没想好" }, expectOk: true },
+    { name: "干预·把答案作为选项提问不误报", input: { text: "第24面是什么颜色？是红色、白色还是黄色？你说说", phase: "intervene", final_answer: "黄色", problem_text: "红白黄重复排列，第24面是什么颜色", prev_student: "第一个" }, expectOk: true },
+    { name: "干预·学生已说出非数值答案后肯定不误报", input: { text: "对，是黄色，你想通了！再说说为什么？", phase: "intervene", final_answer: "黄色", problem_text: "红白黄重复排列", prev_student: "余0是最后一个，所以是黄色" }, expectOk: true },
 
     // ---- 阶段放行：summarize/review 不审计，应直接 ok ----
     { name: "总结·不审计应放行", input: { text: "第1步先算总腿数，第2步算差额 6÷2=3。", phase: "summarize", standard_answer: "3" }, expectOk: true },
@@ -315,7 +383,7 @@ function selftest() {
 // 所以把待发文本改从文件读（--text-file），其余参数走 flag，彻底绕开转义。
 // stdin JSON 仍然支持，作为向后兼容路径。
 
-const HELP = `AI Teaching Engine · 运行时守卫
+const HELP = `Math Tutor · 运行时守卫
 
 推荐用法（把待发给学生的文本写进文件，无需任何转义）：
   node guard.mjs --text-file <path> --phase <explain|practice|diagnose|intervene> \\

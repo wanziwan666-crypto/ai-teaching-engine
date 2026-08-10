@@ -1,4 +1,4 @@
-# AI Teaching Engine · Behavioral Templates
+# Math Tutor · Behavioral Templates
 
 > 使用方式：opencode 自己就是老师（不需要调任何外部 API）。
 > 每个 phase 开始前，读对应 section 的模板——那是**你自己的行为准则**，不是要发给别的模型的 system prompt。

@@ -1,4 +1,4 @@
-// AI Teaching Engine · 学情日志写入器
+// Math Tutor · 学情日志写入器
 //
 // 用途：REVIEW 完成后调一次，把 ~/.ai-teaching-state.json 机械投影成一行 JSONL，
 //      追加到 ~/.ai-teaching-log.jsonl。math-analytics skill 读这个文件做数学学情分析。
@@ -33,6 +33,16 @@ const ESCAPE_REASONS = ["", "exhausted", "gave_up"];
 const str = (v) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const int = (v) => (Number.isFinite(Number(v)) ? Math.trunc(Number(v)) : 0);
 const bool = (v) => v === true;
+
+// 本地时间戳（不是 UTC）。
+// 为什么不用 toISOString()：它输出 UTC，而分析端按本地日期切窗口、判"同一天做了几道题"、
+// 判"3 天内集中 ≥3 道同题型"。UTC+8 下晚 8 点后做的题会被记成前一天——恰好是小学生写作业的
+// 时间段，一晚上做的 3 道题会被切成两天，直接打掉"最近在集中攻这一块"这个判据。
+// 补偿必须做在写入侧：分析端只看到日期字符串，无从知道它是哪个时区的。
+function localStamp(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
 
 // 把一道题的多轮 PRACTICE→DIAGNOSE 循环投影成数组。
 // state.rounds 是首选来源；老 state 只有单个 diagnosis/intervene，退化成一条。
@@ -71,7 +81,13 @@ export function project(state, now = new Date()) {
   const p = s.problem || {};
   const sk = s.skeleton || {};
   const rounds = projectRounds(s);
-  const escape_reason = ESCAPE_REASONS.includes(str(s.escape_reason)) ? str(s.escape_reason) : str(s.escape_reason);
+
+  // escape_reason 只有三个合法值。野值归 ""，同时记进 unknown_escape_reason ——
+  // 跟 unknown_stuck_types 同一个约定：可以不认识，但不能静默吞掉。
+  // （早期这里写成了三元的两边完全相同，等于没校验，野值原样落盘后被维度四漏掉。）
+  const rawEscape = str(s.escape_reason);
+  const escapeKnown = ESCAPE_REASONS.includes(rawEscape);
+  const escape_reason = escapeKnown ? rawEscape : "";
 
   // 主卡点 = 最后一个未通过的轮次；全通过则取第一个卡过的轮次；从没卡过则为空。
   const failed = rounds.filter((r) => !r.correct);
@@ -81,8 +97,18 @@ export function project(state, now = new Date()) {
     rounds.map((r) => r.stuck_type).filter((t) => t && !STUCK_TYPES.includes(t))
   )];
 
+  // 干预后的新题是否独立做对。
+  // 只有真的出过新题才谈得上——出新题 = 迈过卡点后回 PRACTICE，对应第 2 轮及以后。
+  // 所以 rounds.length < 2 时这件事**不适用**，落 null，不落 false：
+  //   · exhausted（干预耗尽、从没出新题）单轮 correct=false，落 false 会被分析端读成
+  //     "干预时能答对、换新题又错了，再练一道变式"——两句都不成立，且建议方向正好相反（该人工辅导）。
+  //   · 全程没卡也没有"干预后的新题"，同样不适用。
+  // 分析端约定：null = 不适用，跳过；只有 false 才是真的迁移失败。
+  const new_problem_independent_correct =
+    rounds.length >= 2 ? bool(rounds[rounds.length - 1].correct) : null;
+
   const rec = {
-    date: str(s.logged_at) || now.toISOString().slice(0, 19),
+    date: str(s.logged_at) || localStamp(now),
     student: str(s.student) || "default",
     topic: str(p.topic),
     skeleton_type: str(sk.type) || str(p.topic),
@@ -97,10 +123,10 @@ export function project(state, now = new Date()) {
     rounds_count: rounds.length,
     inner_loop: int(s.inner_loop),
     escape_reason,
-    // 干预后新题是否独立做对：最后一轮 correct 即为它；无干预时为 true。
-    new_problem_independent_correct: rounds.length ? bool(rounds[rounds.length - 1].correct) : true,
+    new_problem_independent_correct,
   };
   if (unknown_stuck_types.length) rec.unknown_stuck_types = unknown_stuck_types;
+  if (!escapeKnown && rawEscape) rec.unknown_escape_reason = rawEscape;
   return rec;
 }
 
@@ -151,8 +177,39 @@ function selftest() {
     inner_loop: 3, escape_reason: "exhausted",
   });
   eq("exhausted·escape_reason 透传", ex.escape_reason, "exhausted");
-  eq("exhausted·新题未独立做对", ex.new_problem_independent_correct, false);
+  eq("exhausted·出过新题才算迁移失败", ex.new_problem_independent_correct, false);
   eq("exhausted·审题理解错误是合法卡点", ex.unknown_stuck_types, undefined);
+
+  // 3b) exhausted 但从没出过新题（真实日志里最常见的那种）：
+  //     单轮、干预耗尽。此时"干预后的新题"不存在，落 null 而不是 false——
+  //     落 false 会让分析端说出"干预时能答对、换新题又错了，再练一道变式"，
+  //     两句都不成立，且建议方向跟"该人工辅导"正好相反。
+  const exSingle = project({
+    problem: { text: "甲10天完成乙15天完成合做几天", topic: "工程问题" },
+    skeleton: { type: "工程问题", steps: [1, 2, 3, 4] },
+    diagnosis: { correct: false, step: 2, type: "无从下手", reason: "不理解效率=总量÷时间" },
+    intervene: { count: 3, passed: false }, inner_loop: 0, escape_reason: "exhausted",
+  });
+  eq("exhausted单轮·没出过新题则不适用（null）", exSingle.new_problem_independent_correct, null);
+  eq("exhausted单轮·主卡点仍在", exSingle.stuck_type, "无从下手");
+  eq("全程没卡·也没有干预后的新题（null）", clean.new_problem_independent_correct, null);
+
+  // 3c) escape_reason 野值：归 "" 并单独标记，不静默原样落盘
+  const wildEsc = project({
+    problem: { text: "x", topic: "y" }, skeleton: { type: "y", steps: 3 },
+    diagnosis: { correct: true }, escape_reason: "quit_by_parent",
+  });
+  eq("野 escape_reason·归空", wildEsc.escape_reason, "");
+  eq("野 escape_reason·被标记出来", wildEsc.unknown_escape_reason, "quit_by_parent");
+  eq("合法 escape_reason·不产生多余标记", multi.unknown_escape_reason, undefined);
+
+  // 3d) date 落本地时间，不是 UTC。
+  //     UTC+8 的晚 20:00 之后，UTC 日期已经是前一天——那正是写作业时段，
+  //     切错日期会打掉"同一天多道题""3 天内集中 ≥3 道"两个判据。
+  const evening = new Date(2026, 7, 4, 21, 30, 0); // 本地 2026-08-04 21:30
+  const stamped = project({ problem: { text: "a", topic: "b" }, skeleton: { steps: 1 }, diagnosis: { correct: true } }, evening);
+  eq("date·用本地日期而非 UTC", stamped.date, "2026-08-04T21:30:00");
+  eq("date·不带 Z 后缀", stamped.date.includes("Z"), false);
 
   // 4) 老 state（无 rounds）退化投影
   const legacy = project({

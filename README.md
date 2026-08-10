@@ -1,4 +1,4 @@
-# AI Teaching Engine 🧭
+# Math Tutor 🧭
 
 > AI 家教五步教学术——讲→练→诊断→干预→复盘，零依赖 AI 辅导引擎
 
@@ -43,7 +43,7 @@
 复制整个目录到你的 agent skills 路径：
 
 ```bash
-cp -r ai-teaching-engine ~/.agents/skills/
+cp -r math-tutor ~/.agents/skills/
 ```
 
 支持 opencode、Claude Code、Cursor、WorkBuddy 等任何 agent 环境。
@@ -59,7 +59,7 @@ cp -r ai-teaching-engine ~/.agents/skills/
 ### 文件结构
 
 ```
-ai-teaching-engine/
+math-tutor/
 ├── SKILL.md          # 行为规则（状态机 + 各阶段约束）
 ├── prompts.js        # 各阶段行为模板
 ├── turn.mjs          # 每轮入口：守卫校验 → 落盘 → 推进计数器 → 重渲染面板

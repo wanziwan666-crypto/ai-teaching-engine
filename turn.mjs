@@ -1,4 +1,4 @@
-// AI Teaching Engine · 每轮单次调用入口
+// Math Tutor · 每轮单次调用入口
 //
 // 为什么存在：过去每一轮宿主要依次做 4~5 件事——过守卫、追加 turn、更新 state、
 // 自增 inner_loop / 追问计数、重写整页 HTML。件件都能忘，忘了就泄底或丢历史。
@@ -69,7 +69,13 @@ export function guardContext(state, phase, override = {}) {
   //   2. **练习表单里填的作答**（进的是 state.practice.answers，不是 turn）
   // 只看 1 的话，诊断阶段肯定学生算对的中间量（"你第2步的455算对了"）会被误判成泄底，
   // 而那恰恰是诊断最自然的写法 —— 实测平均数问题就在这里被整局拦住。
-  const lastChat = [...(s.turns || [])].reverse().find((t) => t?.role === "student")?.body || "";
+  //
+  // 但 practice 之后**不能再看原题阶段的发言**：那是另一道题的数字。
+  // 实测年龄问题：讲原题时学生说"儿子从10到14"，变式题的中间量恰好也是 14，
+  // 于是原题的发言把变式题的泄底豁免掉了 —— 一道题的作答不该为另一道题背书。
+  const practiceIdx = (s.turns || []).findIndex((t) => t?.phase === "practice");
+  const scope = fromPractice && practiceIdx >= 0 ? (s.turns || []).slice(practiceIdx) : (s.turns || []);
+  const lastChat = [...scope].reverse().find((t) => t?.role === "student")?.body || "";
   const formAnswers = Object.values(s.practice?.answers || {}).join(" ");
   const prevStudent = [lastChat, formAnswers].filter(Boolean).join(" ");
 
@@ -274,7 +280,7 @@ export function writeLog({ statePath = STATE_PATH, logPath = LOG_PATH } = {}) {
 
 // ---- CLI ----
 
-const HELP = `AI Teaching Engine · 每轮单次调用（守卫 + 落盘 + 渲染 + 计数）
+const HELP = `Math Tutor · 每轮单次调用（守卫 + 落盘 + 渲染 + 计数）
 
 追加一条 turn（推荐：turn 数据写进文件，body 含换行无需转义）：
   node turn.mjs --turn-file /tmp/turn.json [--phase-to <phase>]
@@ -427,6 +433,28 @@ function selftest() {
   });
   t("学生没填过的中间量仍被拦",
     commit({ turn: { phase: "diagnose", body: "第2步的总数应该是455个。你再看看？", diagnosis: { correct: false, step: 2, type: "过程跳步", reason: "x" } }, statePath: sp, outPath: op }).ok === false);
+
+  // 跨题豁免隔离：practice 之后不能再拿原题阶段的学生发言为变式题背书。
+  // 实测年龄问题：讲原题时学生说"儿子从10到14"，变式题的中间量恰好也是 14，
+  // 于是原题发言把变式题的泄底豁免掉了。
+  seed({
+    phase: "intervene",
+    problem: { topic: "年龄", text: "父亲38岁儿子10岁", final_answer: "4年后", steps_solution: "4一份=14岁" },
+    practice: {
+      story: "今年妈妈34岁，女儿6岁。几年后妈妈是女儿的3倍？", final_answer: "8年后",
+      steps_solution: "2年龄差=28岁;3母3份女1份差2份;4一份=14岁,那年女儿14岁;5=8年后",
+      answers: { 1: "年龄差", 2: "28岁", 3: "3份" },
+    },
+    diagnosis: { step: 3 },
+    turns: [
+      { role: "student", body: "儿子从10到14，过了4年" },
+      { phase: "practice", form_id: "nl1", story: "今年妈妈34岁，女儿6岁", answers: { 1: "年龄差" } },
+    ],
+  });
+  t("原题阶段说过的数字不为变式题泄底背书",
+    commit({ turn: { phase: "intervene", body: "差是2份，所以一份是14岁。那女儿呢？" }, statePath: sp, outPath: op }).ok === false);
+  t("变式题表单里填过的仍豁免",
+    commit({ turn: { phase: "intervene", body: "你填的年龄差28岁是对的。那差占几份呢？" }, statePath: sp, outPath: op }).ok === true);
 
   // --body-file：正文走纯文本，含换行也不必转义（回归 e2e 里踩到的"JSON 非法"陷阱）
   seed();

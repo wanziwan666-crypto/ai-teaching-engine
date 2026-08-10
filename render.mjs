@@ -1,4 +1,4 @@
-// AI Teaching Engine · 教学面板渲染器（确定性 HTML 输出）
+// Math Tutor · 教学面板渲染器（确定性 HTML 输出）
 //
 // 为什么存在：面板过去靠 LLM 每轮照着 SKILL.md 里的模板手抄一整页 HTML，
 // 而且要求"完整重写全部历史 turn、不许压缩旧内容"——抄写量大、极易漂移。
