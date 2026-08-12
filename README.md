@@ -1,4 +1,4 @@
-# AI Teaching Engine 🧭
+# Math Tutor 🧭
 
 > AI 家教五步教学术——讲→练→诊断→干预→复盘，零依赖 AI 辅导引擎
 
@@ -43,7 +43,7 @@
 复制整个目录到你的 agent skills 路径：
 
 ```bash
-cp -r ai-teaching-engine ~/.agents/skills/
+cp -r math-tutor ~/.agents/skills/
 ```
 
 支持 opencode、Claude Code、Cursor、WorkBuddy 等任何 agent 环境。
@@ -59,20 +59,39 @@ cp -r ai-teaching-engine ~/.agents/skills/
 ### 文件结构
 
 ```
-ai-teaching-engine/
+math-tutor/
 ├── SKILL.md          # 行为规则（状态机 + 各阶段约束）
 ├── prompts.js        # 各阶段行为模板
+├── turn.mjs          # 每轮入口：守卫校验 → 落盘 → 推进计数器 → 重渲染面板
+├── render.mjs        # 教学面板渲染：state.turns → 完整 HTML
 ├── guard.mjs         # 运行时守卫：回复前校验教学红线
+├── log.mjs           # 学情日志：REVIEW 后把 state 投影成一行 JSONL
 ├── setup.mjs         # 家长首次配置：环境检查 / 清理旧状态 / 安全网自测
-└── problem-types/    # 题型骨架库
-    ├── _schema.md    # 如何编写新题型
-    ├── 鸡兔同笼.md
-    ├── 相遇问题.md
-    ├── 工程问题.md
-    └── 盈亏问题.md
+└── problem-types/    # 题型骨架库（13 个，见下）
+    └── _schema.md    # 如何编写新题型
 ```
 
 零 npm 依赖，零 pip 依赖，零外部服务。
+
+### 题型库
+
+覆盖小学高年级（五、六年级）常见应用题：
+
+| 类别 | 题型 |
+|------|------|
+| 假设与推理 | 鸡兔同笼、盈亏问题 |
+| 行程 | 相遇问题、追及问题、流水行船 |
+| 倍数与比 | 和差倍问题、按比例分配、年龄问题 |
+| 分数与平均 | 分数应用题、平均数问题、归一问题 |
+| 工程与规律 | 工程问题、周期问题 |
+
+**为什么集中在五、六年级**：骨架机制要求题目有"关键洞察 + 3-5 步推理"的结构。
+三四年级题目一两步就完，五类卡点里只有「计算失误」用得上，机制大半空转；
+初中解法收敛到列方程，题型差异被抹平，且几何看图题本 skill 不支持。
+
+AI 不手写 HTML：它每轮只产出一条结构化 turn，面板由 `render.mjs` 从 `state.turns`
+确定性渲染。所以教学历史结构上不可能被压缩或丢失，泄底的文本也进不了页面
+（守卫不过就整轮不落盘）。
 
 ## 工作原理
 
@@ -85,11 +104,11 @@ ai-teaching-engine/
 
 ### 教学面板
 
-每轮写 HTML 到 `~/Downloads/ai-teaching-card.html`，包含：
+`~/Downloads/math-tutor-card.html`，由 `render.mjs` 从 `state.turns` 全量重渲染，包含：
 - SVG 可视化配图（圆点/箭头/标注）
 - 进度条
-- 完整对话历史（不压缩）
-- 练习表单（提交后 JSON 复制到剪贴板）
+- 完整对话历史（结构上不可压缩——AI 不重写页面，只追加 turn）
+- 练习表单（提交后 JSON 复制到剪贴板；学生正在打字时自动跳过刷新，不打断）
 
 学生浏览器打开面板，在 agent 对话中互动。
 
