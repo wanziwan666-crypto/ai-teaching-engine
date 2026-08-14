@@ -82,11 +82,14 @@ button:hover{background:#2952cc}
 .answered{color:#3370ff;font-weight:600}
 `.trim();
 
-// 智能刷新：定时 reload，但学生正在打字（输入框聚焦）时跳过，免得刷掉他填的答案。
+// 智能刷新策略：优先 SSE 推送（daemon 在线时延迟≈0），连不上回退到 2s 轮询。
 // 表单内容用 window.name 持久化，key 带 FORM_ID —— 换了新练习题就换 ID，
 // 旧题的作答不会被恢复到新表单里。
+// DAEMON_PORT 必须与 daemon.mjs 的 DEFAULT_PORT 一致。
+const DAEMON_PORT = 34567;
 const SCRIPT = `
 var FORM_ID=document.body.dataset.formId||"";
+var DAEMON_PORT=${DAEMON_PORT};
 function saveForm(){
   if(!FORM_ID)return;
   var f=document.getElementById("practice");if(!f)return;
@@ -106,6 +109,7 @@ function restoreForm(){
     else{ els.value=s.data[k]; }
   });
 }
+var RESULT_SHOWN_AT=0;
 function submitAnswers(){
   var f=document.getElementById("practice");if(!f)return;
   var answers={};new FormData(f).forEach(function(v,k){answers[k.replace("q","")]=v});
@@ -113,18 +117,36 @@ function submitAnswers(){
   var r=document.getElementById("result");
   r.textContent=j+"\\n\\n(已复制，粘贴到对话里发给老师)";r.style.display="block";
   if(navigator.clipboard)navigator.clipboard.writeText(j);
+  RESULT_SHOWN_AT=Date.now();
+  try{window.name=""}catch(e){}
+}
+var POLL_TIMER=null,SSE=null;
+function shouldSkip(){
+  var a=document.activeElement;
+  if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"))return true;
+  if(RESULT_SHOWN_AT&&Date.now()-RESULT_SHOWN_AT<8000)return true;
+  return false;
+}
+function doReload(){if(shouldSkip())return;saveForm();location.reload();}
+function startPolling(){if(POLL_TIMER)return;POLL_TIMER=setInterval(doReload,2000);}
+function stopPolling(){if(POLL_TIMER){clearInterval(POLL_TIMER);POLL_TIMER=null;}}
+function connectSSE(){
+  try{
+    SSE=new EventSource("http://localhost:"+DAEMON_PORT+"/live");
+    SSE.onopen=function(){stopPolling();};
+    SSE.onmessage=function(e){if(e.data==="reload")doReload();};
+    SSE.onerror=function(){
+      try{SSE.close()}catch(e){}SSE=null;
+      startPolling();
+      setTimeout(connectSSE,5000);
+    };
+  }catch(e){startPolling();}
 }
 document.addEventListener("DOMContentLoaded",function(){
   restoreForm();
   var f=document.getElementById("practice");
   if(f){f.addEventListener("input",saveForm);f.addEventListener("change",saveForm);}
-  setInterval(function(){
-    var a=document.activeElement;
-    if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"))return;
-    var r=document.getElementById("result");
-    if(r&&r.style.display==="block")return;
-    saveForm();location.reload();
-  },2000);
+  connectSSE();
 });
 `.trim();
 

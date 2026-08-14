@@ -100,6 +100,28 @@ if (writingCount > 0) {
   ok(`作文学情：已有 ${writingCount} 篇（先攒着，作文分析 skill 还没建）`);
 }
 
+// 4c) 配置学生名字（配置文件不存在时主动问）
+if (!fs.existsSync(CONFIG_PATH) && process.stdin.isTTY) {
+  console.log(`\n  ${B}孩子叫什么名字？${R}${DIM}（直接回车跳过，之后手动配置也行）${R}`);
+  process.stdout.write(`  > `);
+  let name = "";
+  try {
+    const buf = Buffer.alloc(256);
+    const n = fs.readSync(0, buf, 0, 256);
+    name = buf.toString("utf8", 0, n).trim();
+  } catch { /* stdin 不可用，跳过 */ }
+  if (name) {
+    try {
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify({ student: name }, null, 2) + "\n");
+      ok(`已写入配置：学情日志将记在"${name}"名下`);
+    } catch {
+      warn(`写入失败，可手动创建 ${CONFIG_PATH.replace(HOME, "~")} 内容：{"student":"${name}"}`);
+    }
+  } else {
+    ok("跳过名字配置（之后可手动创建 ~/.ai-tutoring-config.json）");
+  }
+}
+
 // 5) API 模式说明（默认无需配置）
 if (fs.existsSync(CONFIG_PATH)) {
   ok(`检测到自定义 API 配置（Mode B）：${CONFIG_PATH.replace(HOME, "~")}`);

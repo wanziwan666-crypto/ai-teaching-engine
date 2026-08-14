@@ -154,6 +154,23 @@ export function advance(state, event) {
       break;
 
     case "correct":
+      // 孩子答对了 → 这道题必须有一条 correct 的 round，否则学情日志会漏记它。
+      //
+      // 为什么要在这里补：rounds 只在 DIAGNOSE 提交诊断时 push（见下方 commit）。
+      // SKILL.md 要求答对时也提交一条 {correct:true} 的诊断，但那是散文约定——
+      // 忘了不报错、不被拦，只会安静地少记一道题，而且 new_problem_independent_correct
+      // 会从"迁移成功(true)"塌成"不适用(null)"：孩子恰好用做对回答了那个字段的问题，
+      // 日志却记成没发生。这跟计数器一样属于"能忘的事"，所以做成硬保证。
+      //
+      // 幂等：末条已经是 correct 就不重复追加，规范提交过的宿主不受影响。
+      if (!last || !last.correct) {
+        s.rounds.push({
+          correct: true, stuck_step: 0, stuck_type: "", detail: "",
+          intervene_attempts: 0, passed: true,
+          problem_index: s.inner_loop || 0,
+        });
+        changed.rounds_appended = s.rounds.length;
+      }
       s.phase = "review";
       changed.phase = "review";
       break;
@@ -239,6 +256,17 @@ export function commit({
         detail: d.reason || "",
         intervene_attempts: 0,
         passed: !!d.correct,
+        // 这是第几道**练习题**：0 = 讲完原题后出的第一道，1+ = 干预后换的第 n 道。
+        //
+        // 注意 0 不是"学生自己带来的原题"——原题在 EXPLAIN 阶段是被**讲解**的对象，
+        // 学生从没独立作答过它（PHASE 3 出的 story 是新题）。所以 rounds 里每一条
+        // 都是练习题，日志里没有"原题作答表现"这种数据。
+        //
+        // 取 inner_loop 而不是 rounds.length：inner_loop 在 intervene_passed 时才自增
+        // （见 advance），所以 DIAGNOSE 这一刻它正好是当前练习题的序号；而 rounds.length
+        // 会被"同一道题诊断两次"的宿主打错位。
+        // 分析端用它区分"刚讲完就独立做"(0) 和"干预之后再做"(1+)——后者证据更强。
+        problem_index: state.inner_loop || 0,
       });
       state.intervene = {
         ...(state.intervene || {}),
@@ -413,6 +441,53 @@ function selftest() {
   writeLog({ statePath: sp, logPath: l2 });
   const rec2 = JSON.parse(fs.readFileSync(l2, "utf8").trim());
   t("回填后的 rounds 进得了日志", rec2.rounds[0].intervene_attempts === 2 && rec2.rounds[0].passed === true);
+
+  // 答对必须落一条 round —— 否则孩子真正答对的那道变式题不进学情日志。
+  // 接着上面的状态：变式题①卡过并已迈过，孩子在变式题②上直接做对，宿主只发 --event correct。
+  commit({ event: "correct", statePath: sp, outPath: op });
+  const r3 = readState(sp);
+  t("答对自动追加一条 correct 的 round", r3.rounds.length === 2 && r3.rounds[1].correct === true);
+  const l3 = path.join(tmp, "log3.jsonl");
+  writeLog({ statePath: sp, logPath: l3 });
+  const rec3 = JSON.parse(fs.readFileSync(l3, "utf8").trim());
+  t("答对的那道题进得了日志", rec3.rounds_count === 2);
+  // 这个字段的全部意义就是"干预后换新题还会不会错"，孩子用做对回答了它。
+  // 漏记会让它从 true 塌成 null（不适用），成功的迁移被当成没发生。
+  t("干预后新题做对 → npic 为 true 而不是 null", rec3.new_problem_independent_correct === true);
+  t("主卡点仍是那次真卡过的", rec3.stuck_type === "方法/概念偏差");
+
+  // 幂等：宿主按 SKILL.md 规范先提交 {correct:true} 诊断、再发 --event correct，不该重复追加
+  seed();
+  commit({ turn: { phase: "diagnose", body: "全对，很好。", diagnosis: { correct: true } }, statePath: sp, outPath: op });
+  const roundsBeforeCorrect = readState(sp).rounds.length;
+  commit({ event: "correct", statePath: sp, outPath: op });
+  t("规范提交过诊断时不重复追加 round", readState(sp).rounds.length === roundsBeforeCorrect);
+
+  // problem_index：分析端靠它把原题卡点和变式题卡点分开，盖错了两边都算错
+  seed({ inner_loop: 0 });
+  commit({ turn: { phase: "diagnose", body: "第2步卡住了。", diagnosis: { correct: false, step: 2, type: "审题理解错误", reason: "把总腿数当成总头数" } }, statePath: sp, outPath: op });
+  t("原题那轮盖 problem_index=0", readState(sp).rounds[0].problem_index === 0);
+  commit({ event: "intervene_passed", statePath: sp, outPath: op });
+  t("迈过卡点后 inner_loop=1", readState(sp).inner_loop === 1);
+  commit({ turn: { phase: "diagnose", body: "这次是算错了。", diagnosis: { correct: false, step: 4, type: "计算失误", reason: "22-16 算成 8" } }, statePath: sp, outPath: op });
+  t("变式题①那轮盖 problem_index=1", readState(sp).rounds[1].problem_index === 1);
+  commit({ event: "intervene_passed", statePath: sp, outPath: op });
+  commit({ event: "correct", statePath: sp, outPath: op });
+  t("答对自动追加的那轮也带 problem_index", readState(sp).rounds[2].problem_index === 2);
+  const lpi = path.join(tmp, "logpi.jsonl");
+  writeLog({ statePath: sp, logPath: lpi });
+  const recPi = JSON.parse(fs.readFileSync(lpi, "utf8").trim());
+  t("problem_index 进得了日志", JSON.stringify(recPi.rounds.map((r) => r.problem_index)) === "[0,1,2]");
+
+  // 一次就做对（从没卡过）也要有一条，否则这道题在日志里完全不存在
+  seed();
+  commit({ event: "correct", statePath: sp, outPath: op });
+  const r4 = readState(sp);
+  t("一次就做对也落一条 round", r4.rounds.length === 1 && r4.rounds[0].correct === true);
+  const l4 = path.join(tmp, "log4.jsonl");
+  writeLog({ statePath: sp, logPath: l4 });
+  const rec4 = JSON.parse(fs.readFileSync(l4, "utf8").trim());
+  t("一次做对·日志有记录且无主卡点", rec4.rounds_count === 1 && rec4.stuck_type === "");
 
   // 中间量保护：表单作答也算"学生自己已说出"。
   // 诊断阶段肯定学生填对的中间量（"你第2步的455算对了"）是最自然的写法，

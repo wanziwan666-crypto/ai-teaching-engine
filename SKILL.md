@@ -94,11 +94,21 @@ State file `~/.math-tutor-state.json`:
   `correct` / `step` / `type` / `reason`）
 - 该轮 INTERVENE 结束后回填 `intervene_attempts`（这一轮追问了几次）和 `passed`
 - 一次就做对 → 只有一条且 `correct=true`
+- **`--event correct` 会自动补一条 `correct:true` 的 round**（幂等：末条已是 correct 就不重复追加）。
+  一次教学里孩子独立作答的是**练习题**，最多 3 道（`problem_index` 0/1/2；原题只被讲解、
+  不进 `rounds`）。每道一条 round——孩子真正**答对**的那道
+  如果不落条，学情日志会少记一道题，`new_problem_independent_correct` 还会从
+  "迁移成功(true)"塌成"不适用(null)"：孩子恰好用做对回答了那个字段的问题，日志却记成没发生。
+  所以这件事由 `turn.mjs` 保证，不靠你记得先提交一条 `{correct:true}` 的诊断。
 - `diagnosis` / `intervene` 仍保留当前轮的值供本轮使用；`rounds` 是给日志和复盘用的历史
 
 `escape_reason` 记录**为什么到达 REVIEW**，供复盘卡片分派措辞（见 prompts.js PERSONALIZED）：
 - `""` — 正常走完（含"曾卡但自己迈过"）
-- `"exhausted"` — 同一卡点反复没迈过而被逼出本题（inner_loop > 2 或同一卡点追问 ≥3 次）。**唯一**触发"疑似前置知识缺口"提醒的信号
+- `"exhausted"` — 被逼出本题。**两条路径，含义不同**：
+  同一卡点追问 ≥3 次仍没过（`MAX_INTERVENE`，末轮 `passed=false`）→ 才是"疑似前置知识缺口"；
+  或每次提示后都迈过去了、但换到第 3 道练习题还在卡（`inner_loop > 2`，末轮 `passed=true`）
+  → 那是"消化得慢"，**不是缺口**。`rounds` 末轮的 `passed` 是唯一能区分两者的字段，
+  分析端靠它决定措辞（见 math-analytics 的 `alerts.exhausted[].cause`）
 - `"gave_up"` — 学生主动"给我答案"/放弃
 
 ## 教学面板（不用手写 HTML）
@@ -298,6 +308,45 @@ node turn.mjs --log        # 或等价的 node log.mjs
 | `guard.mjs` | 运行时守卫：回复前校验教学红线（见下） |
 | `log.mjs` | 学情日志写入：REVIEW 后把 state 投影成一行 JSONL，供 math-analytics 分析 |
 | `setup.mjs` | 家长首次配置：环境检查 / 清理旧状态 / 安全网自测 |
+| `daemon.mjs` | **可选**常驻服务：消除进程启动开销 + SSE 实时推送替代轮询（见下） |
+
+## 常驻服务 daemon.mjs（可选加速）
+
+每轮 `node turn.mjs` 要冷启动 Node 进程（~100ms），面板靠 2s 轮询看到更新（平均 1s 延迟）。
+daemon 一次消除两个瓶颈：commit 在常驻进程里跑 + SSE 推送让面板**写完即刷新**。
+
+### 启动
+
+```bash
+node daemon.mjs              # 前台运行，默认端口 34567
+node daemon.mjs --port 8080  # 自定义端口
+```
+
+### AI 怎么用
+
+daemon 在线时，把 `node turn.mjs` 换成 `curl -X POST`：
+
+```bash
+# 检查 daemon 是否在线
+curl -s localhost:34567/health
+
+# 提交 turn（参数与 turn.mjs 完全一致）
+curl -s -X POST "localhost:34567/turn?turn_file=/tmp/turn.json&body_file=/tmp/body.txt"
+
+# 计数器事件
+curl -s -X POST "localhost:34567/event?event=intervene_passed"
+
+# 学生提交作答
+curl -s -X POST "localhost:34567/answers?answers_file=/tmp/answers.json"
+
+# 写学情日志
+curl -s -X POST localhost:34567/log
+```
+
+### 不启动 daemon 时
+
+一切照旧：面板自动回退到 2s 轮询，`node turn.mjs` 正常工作。
+面板端的 `connectSSE()` 连不上就自动降级，不需要手动切换。
 
 ## 运行时守卫（安全网 · 不得跳过）
 

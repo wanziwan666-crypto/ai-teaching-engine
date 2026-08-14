@@ -56,13 +56,18 @@ function projectRounds(s) {
       detail: str(r.detail ?? r.reason).slice(0, 200),
       intervene_attempts: int(r.intervene_attempts ?? r.attempts),
       passed: bool(r.passed),
+      // 第几道**练习题**：0 = 讲完原题后出的第一道，1+ = 干预后换的第 n 道。
+      // 不是"原题 vs 变式题"——原题只被讲解、从未被独立作答，rounds 里全是练习题。
+      // 老 state 没有这个字段，退化成"一题一轮"的下标——规范流程成立，
+      // 只有"同题诊断两次"的老记录会偏，那种记录本来也无从还原。
+      problem_index: Number.isInteger(r.problem_index) ? r.problem_index : i,
     }));
   }
   const d = s.diagnosis || {};
   const iv = s.intervene || {};
   const hasAny = str(d.type) || str(iv.stuck_type) || int(d.step) || int(iv.stuck_step);
   if (!hasAny && bool(d.correct)) {
-    return [{ n: 1, correct: true, stuck_step: 0, stuck_type: "", detail: "", intervene_attempts: 0, passed: true }];
+    return [{ n: 1, correct: true, stuck_step: 0, stuck_type: "", detail: "", intervene_attempts: 0, passed: true, problem_index: 0 }];
   }
   if (!hasAny) return [];
   return [{
@@ -73,6 +78,7 @@ function projectRounds(s) {
     detail: str(d.reason ?? iv.question).slice(0, 200),
     intervene_attempts: int(iv.count),
     passed: bool(iv.passed),
+    problem_index: 0,
   }];
 }
 
